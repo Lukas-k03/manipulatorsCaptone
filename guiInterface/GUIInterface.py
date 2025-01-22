@@ -1,15 +1,17 @@
-<<<<<<< Updated upstream
 import numpy as np
-=======
-#inport all neccessary packages
 
+#move up
+    # move middle joint up
 
+#move down
+    # move middle joint down
 
-#buttons for base movement (clockwise / counter-clockwise)
+#move left
+    #rotate base left
 
+#move right
+    #rotate base right
 
-#buttons for joint movement (up / down)
+#move forward
 
-
-#buttons for claw movement (up / down)
->>>>>>> Stashed changes
+# move backwards
