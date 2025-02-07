@@ -1,4 +1,5 @@
 import tkinter as tk
+import gCodeParser as gcode
 
 root = tk.Tk()
 root.title("Tkinter Test")
