@@ -1,4 +1,4 @@
-def generate_gcode(x=None, y=None, z=None, a=None, b=None, feedrate=100):
+def generate_gcode(x=None, y=None, z=None, a=None, b=None):
 
     #Generates a G-code command based on the given axis inputs.
     #Parameters:
@@ -21,7 +21,5 @@ def generate_gcode(x=None, y=None, z=None, a=None, b=None, feedrate=100):
         command += f" A{a}"
     if b is not None:
         command += f" B{b}"
-    
-    #command += f" F{feedrate}"  # Append feed rate
     
     return command
