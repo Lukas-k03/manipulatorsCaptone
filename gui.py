@@ -8,7 +8,7 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QTimer, Qt
 import threading
 
-MICROCOMPUTER_IP = "127.0.0.1"
+MICROCOMPUTER_IP = "10.221.85.33"
 WS_PORT = 8080
 CAMERA_INDEX = 0  # Kept for fallback but not used by default
 
@@ -65,7 +65,7 @@ class potatoControlGUI(QWidget):
         main_layout.addLayout(bottom_layout)
 
         self.setLayout(main_layout)
-        self.setWindowTitle("Remote potato Control")
+        self.setWindowTitle("Remote Potato Control")
         self.setGeometry(100, 100, 800, 600)
 
         self.up_button.clicked.connect(lambda: self.queue_command("UP"))

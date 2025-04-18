@@ -1,9 +1,7 @@
 import asyncio
 import websockets
 import cv2
-import base64
-import json
-import time
+import serial
 from datetime import datetime
 
 HOST = "127.0.0.1"
@@ -13,6 +11,58 @@ connected_clients = set()
 # Camera setup
 CAMERA_INDEX = 0
 FRAME_INTERVAL = 0.1  # seconds between frames (10 FPS)
+
+# Arduino Serial setup
+SERIAL_PORT = "/dev/ttyACM0"  # Change this to your Arduino Mega port
+BAUD_RATE = 115200
+serial_conn = None
+
+# Movement configuration
+MOVEMENT_SPEED = 100  # Default movement speed (mm/min)
+MOVEMENT_DISTANCE = 10  # Default movement distance (mm)
+
+async def initialize_serial():
+    """Initialize the serial connection to Arduino Mega."""
+    global serial_conn
+    try:
+        serial_conn = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        print(f"Serial connection established on {SERIAL_PORT}")
+        await asyncio.sleep(2)  # Wait for Arduino to reset after connection
+        send_gcode("G90")  # Set absolute positioning
+        return True
+    except Exception as e:
+        print(f"Failed to open serial connection: {e}")
+        return False
+
+def send_gcode(gcode):
+    """Send GCODE command to Arduino."""
+    if serial_conn and serial_conn.is_open:
+        command = f"{gcode}\n"
+        print(f"Sending GCODE: {gcode}")
+        serial_conn.write(command.encode())
+        response = serial_conn.readline().decode().strip()
+        print(f"Arduino response: {response}")
+        return response
+    else:
+        print("Serial connection not available")
+        return None
+
+def movement_to_gcode(direction):
+    """Convert direction command to GCODE."""
+    if direction == "STOP":
+        return "M410"  # Emergency stop
+    
+    # Create relative movement commands
+    if direction == "UP":
+        return f"G1 Y{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
+    elif direction == "DOWN":
+        return f"G1 Y-{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
+    elif direction == "LEFT":
+        return f"G1 X-{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
+    elif direction == "RIGHT":
+        return f"G1 X{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
+    else:
+        return None
 
 async def send_video_frames():
     """Captures frames from camera and sends to all connected clients."""
@@ -88,11 +138,38 @@ async def handle_client(websocket):
             if message == "PING":
                 await websocket.send("PONG")
             elif message in ["UP", "DOWN", "LEFT", "RIGHT", "STOP"]:
-                # Here you would control your potato based on the command
-                print(f"Processing potato command: {message}")
-                await websocket.send(f"STATUS:Command {message} executed")
+                # Convert movement command to GCODE and send to Arduino
+                gcode = movement_to_gcode(message)
+                if gcode:
+                    response = send_gcode(gcode)
+                    await websocket.send(f"STATUS:Command {message} executed ({gcode})")
+                else:
+                    await websocket.send(f"STATUS:Invalid command {message}")
+            elif message.startswith("SET_SPEED:"):
+                try:
+                    global MOVEMENT_SPEED
+                    MOVEMENT_SPEED = int(message.split(":")[1])
+                    await websocket.send(f"STATUS:Movement speed set to {MOVEMENT_SPEED}")
+                except Exception as e:
+                    await websocket.send(f"STATUS:Error setting speed: {e}")
+            elif message.startswith("SET_DISTANCE:"):
+                try:
+                    global MOVEMENT_DISTANCE
+                    MOVEMENT_DISTANCE = int(message.split(":")[1])
+                    await websocket.send(f"STATUS:Movement distance set to {MOVEMENT_DISTANCE}")
+                except Exception as e:
+                    await websocket.send(f"STATUS:Error setting distance: {e}")
+            elif message.startswith("GCODE:"):
+                # Allow direct GCODE commands
+                try:
+                    raw_gcode = message.split(":", 1)[1]
+                    response = send_gcode(raw_gcode)
+                    await websocket.send(f"STATUS:GCODE executed: {raw_gcode}")
+                except Exception as e:
+                    await websocket.send(f"STATUS:Error executing GCODE: {e}")
             else:
                 print(f"Unknown command: {message}")
+                await websocket.send(f"STATUS:Unknown command: {message}")
                 
     except websockets.exceptions.ConnectionClosed:
         print(f"Client {client_id} disconnected")
@@ -104,6 +181,11 @@ async def handle_client(websocket):
 
 async def main():
     """Starts the WebSocket server and video streaming."""
+    # Initialize serial connection to Arduino
+    if not await initialize_serial():
+        print("Failed to initialize serial connection. Exiting.")
+        return
+        
     # Start video streaming in a separate task
     video_task = asyncio.create_task(send_video_frames())
     
@@ -115,6 +197,10 @@ async def main():
             await asyncio.Future()
         finally:
             video_task.cancel()
+            # Close serial connection
+            if serial_conn and serial_conn.is_open:
+                serial_conn.close()
+                print("Serial connection closed")
             try:
                 await video_task
             except asyncio.CancelledError:
@@ -125,5 +211,11 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Server stopped by user")
+        # Ensure serial connection is closed
+        if serial_conn and serial_conn.is_open:
+            serial_conn.close()
     except Exception as e:
         print(f"Server error: {e}")
+        # Ensure serial connection is closed
+        if serial_conn and serial_conn.is_open:
+            serial_conn.close()
