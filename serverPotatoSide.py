@@ -47,19 +47,28 @@ def send_gcode(gcode):
         print("Serial connection not available")
         return None
 
-def movement_to_gcode(direction):
+def movement_to_gcode(command):
     """Convert direction command to GCODE."""
-    if direction == "STOP":
+    if command == "STOP":
         return "M410"  # Emergency stop
     
-    # Create relative movement commands
-    if direction == "UP":
+    # New axis controls (X+, X-, Y+, Y-, Z+, Z-, A+, A-)
+    if len(command) == 2 and command[0] in "XYZA" and command[1] in "+-":
+        axis = command[0]
+        direction = 1 if command[1] == "+" else -1
+        distance = MOVEMENT_DISTANCE * direction
+        
+        # Create movement command for the specified axis
+        return f"G1 {axis}{distance} F{MOVEMENT_SPEED}"
+    
+    # Keep backward compatibility with old UP, DOWN, LEFT, RIGHT commands
+    elif command == "UP":
         return f"G1 Y{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
-    elif direction == "DOWN":
+    elif command == "DOWN":
         return f"G1 Y-{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
-    elif direction == "LEFT":
+    elif command == "LEFT":
         return f"G1 X-{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
-    elif direction == "RIGHT":
+    elif command == "RIGHT":
         return f"G1 X{MOVEMENT_DISTANCE} F{MOVEMENT_SPEED}"
     else:
         return None
@@ -137,6 +146,17 @@ async def handle_client(websocket):
             # Process commands
             if message == "PING":
                 await websocket.send("PONG")
+            # Handle axis controls (X+, X-, Y+, Y-, Z+, Z-, A+, A-)
+            elif (len(message) == 2 and 
+                  message[0] in "XYZA" and 
+                  message[1] in "+-"):
+                gcode = movement_to_gcode(message)
+                if gcode:
+                    response = send_gcode(gcode)
+                    await websocket.send(f"STATUS:Command {message} executed ({gcode})")
+                else:
+                    await websocket.send(f"STATUS:Invalid command {message}")
+            # Handle legacy movement commands
             elif message in ["UP", "DOWN", "LEFT", "RIGHT", "STOP"]:
                 # Convert movement command to GCODE and send to Arduino
                 gcode = movement_to_gcode(message)

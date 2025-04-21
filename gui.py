@@ -3,7 +3,7 @@ import asyncio
 import websockets
 import cv2
 import numpy as np
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QFrame
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QFrame, QGridLayout, QGroupBox, QSlider
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import QTimer, Qt
 import threading
@@ -19,6 +19,7 @@ class potatoControlGUI(QWidget):
         self.loop = None  # for async commands
         self.latest_frame = None
         self.frame_received = False
+        self.movement_distance = 10  # Default movement distance
         self.initUI()
 
         self.websocket_thread = threading.Thread(target=self.run_websocket_loop, daemon=True)
@@ -31,48 +32,89 @@ class potatoControlGUI(QWidget):
     def initUI(self):
         main_layout = QVBoxLayout()
 
+        # Camera feed at the top
         self.camera_label = QLabel("Waiting for camera feed from potato...")
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setFixedSize(600, 480)
         main_layout.addWidget(self.camera_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Controls and status at the bottom
         bottom_layout = QHBoxLayout()
 
+        # Status panel on the left
+        status_panel = QVBoxLayout()
         self.status_label = QLabel("Status: Disconnected")
         self.status_label.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bottom_layout.addWidget(self.status_label)
+        status_panel.addWidget(self.status_label)
+        
+        # Movement distance slider
+        distance_group = QGroupBox("Movement Distance (mm)")
+        distance_layout = QVBoxLayout()
+        self.distance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.distance_slider.setMinimum(1)
+        self.distance_slider.setMaximum(50)
+        self.distance_slider.setValue(10)
+        self.distance_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.distance_slider.setTickInterval(5)
+        self.distance_slider.valueChanged.connect(self.update_distance)
+        
+        self.distance_label = QLabel(f"Distance: {self.movement_distance} mm")
+        self.distance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        distance_layout.addWidget(self.distance_label)
+        distance_layout.addWidget(self.distance_slider)
+        distance_group.setLayout(distance_layout)
+        status_panel.addWidget(distance_group)
+        
+        # Emergency stop button
+        self.stop_button = QPushButton("EMERGENCY STOP")
+        self.stop_button.setStyleSheet("background-color: red; color: white; font-weight: bold;")
+        self.stop_button.setMinimumHeight(50)
+        self.stop_button.clicked.connect(lambda: self.queue_command("STOP"))
+        status_panel.addWidget(self.stop_button)
+        
+        bottom_layout.addLayout(status_panel)
 
-        dpad_layout = QVBoxLayout()
-        self.up_button = QPushButton("▲")
-        self.down_button = QPushButton("▼")
-        self.left_button = QPushButton("◀")
-        self.right_button = QPushButton("▶")
-        self.stop_button = QPushButton("■")
-
-        move_layout = QVBoxLayout()
-        move_layout.addWidget(self.up_button, alignment=Qt.AlignmentFlag.AlignCenter)
-        move_layout.addWidget(self.stop_button, alignment=Qt.AlignmentFlag.AlignCenter)
-        move_layout.addWidget(self.down_button, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        control_layout = QHBoxLayout()
-        control_layout.addWidget(self.left_button)
-        control_layout.addLayout(move_layout)
-        control_layout.addWidget(self.right_button)
-
-        dpad_layout.addLayout(control_layout)
-        bottom_layout.addLayout(dpad_layout)
+        # Axis controls on the right
+        axes_layout = QGridLayout()
+        
+        # Create control groups for each axis
+        self.create_axis_controls(axes_layout, "X", 0, 0)
+        self.create_axis_controls(axes_layout, "Y", 0, 1)
+        self.create_axis_controls(axes_layout, "Z", 1, 0)
+        self.create_axis_controls(axes_layout, "A", 1, 1)
+        
+        bottom_layout.addLayout(axes_layout)
+        
         main_layout.addLayout(bottom_layout)
-
         self.setLayout(main_layout)
         self.setWindowTitle("Remote Potato Control")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 800, 650)
+        
+    def create_axis_controls(self, parent_layout, axis_name, row, col):
+        axis_group = QGroupBox(f"{axis_name} Axis")
+        axis_layout = QVBoxLayout()
+        
+        # Plus button
+        plus_btn = QPushButton(f"+{axis_name}")
+        plus_btn.clicked.connect(lambda: self.queue_command(f"{axis_name}+"))
+        
+        # Minus button
+        minus_btn = QPushButton(f"-{axis_name}")
+        minus_btn.clicked.connect(lambda: self.queue_command(f"{axis_name}-"))
+        
+        axis_layout.addWidget(plus_btn)
+        axis_layout.addWidget(minus_btn)
+        
+        axis_group.setLayout(axis_layout)
+        parent_layout.addWidget(axis_group, row, col)
 
-        self.up_button.clicked.connect(lambda: self.queue_command("UP"))
-        self.down_button.clicked.connect(lambda: self.queue_command("DOWN"))
-        self.left_button.clicked.connect(lambda: self.queue_command("LEFT"))
-        self.right_button.clicked.connect(lambda: self.queue_command("RIGHT"))
-        self.stop_button.clicked.connect(lambda: self.queue_command("STOP"))
+    def update_distance(self, value):
+        self.movement_distance = value
+        self.distance_label.setText(f"Distance: {value} mm")
+        # Send the new distance to the server
+        self.queue_command(f"SET_DISTANCE:{value}")
 
     def update_camera_feed(self):
         if self.frame_received and self.latest_frame is not None:
